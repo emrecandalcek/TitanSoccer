@@ -28,7 +28,7 @@ public class AIStateController : MonoBehaviour
 
     private PlayerController _player;
     private AiState _currentState;
-    private Vector3 _homePosition;
+    private Vector2 _homePosition;
     private readonly Dictionary<PlayerRole, Rect> _roleZones = new();
 
     public bool IsUserTeam;
@@ -54,8 +54,8 @@ public class AIStateController : MonoBehaviour
 
     private void EvaluateState()
     {
-        Vector3 zoneCenter = GetZone(Role).center;
-        float distanceFromZone = Vector3.Distance(transform.position, zoneCenter);
+        Vector2 zoneCenter = GetZone(Role).center;
+        float distanceFromZone = Vector2.Distance(transform.position, zoneCenter);
         float pressModifier = Mathf.Lerp(0.6f, 1.25f, _player.Attributes.EvaluateSkill(_player.Attributes.Awareness));
         float staminaFactor = Mathf.Lerp(0.75f, 1.1f, _player.Attributes.EvaluateSkill(_player.Attributes.Stamina));
         float dynamicPressDistance = PressDistance * pressModifier * staminaFactor;
@@ -73,13 +73,13 @@ public class AIStateController : MonoBehaviour
             return;
         }
 
-        if (PressTarget != null && Vector3.Distance(transform.position, PressTarget.position) < dynamicPressDistance * 0.8f)
+        if (PressTarget != null && Vector2.Distance(transform.position, PressTarget.position) < dynamicPressDistance * 0.8f)
         {
             _currentState = AiState.Press;
             return;
         }
 
-        if (MarkTarget != null && Vector3.Distance(transform.position, MarkTarget.position) < 6f)
+        if (MarkTarget != null && Vector2.Distance(transform.position, MarkTarget.position) < 6f)
         {
             _currentState = AiState.Mark;
             return;
@@ -102,7 +102,7 @@ public class AIStateController : MonoBehaviour
                 }
                 break;
             case AiState.Intercept:
-                _player.SetMovementTarget(_homePosition + transform.forward * 2f);
+                _player.SetMovementTarget(_homePosition + (Vector2)transform.up * 2f);
                 break;
             case AiState.Press:
                 if (PressTarget != null)
@@ -122,7 +122,7 @@ public class AIStateController : MonoBehaviour
     private void MoveToZoneCenter()
     {
         Rect zone = GetZone(Role);
-        Vector3 target = new Vector3(zone.center.x, transform.position.y, zone.center.y);
+        Vector2 target = zone.center;
         _player.SetMovementTarget(target);
     }
 
@@ -130,19 +130,19 @@ public class AIStateController : MonoBehaviour
     {
         Rect zone = GetZone(Role);
         Vector2 offset = new(Mathf.Sign(zone.center.x) * zone.width * 0.25f, zone.height * 0.2f);
-        Vector3 target = new(zone.center.x + offset.x, transform.position.y, zone.center.y + offset.y);
+        Vector2 target = new(zone.center.x + offset.x, zone.center.y + offset.y);
         _player.SetMovementTarget(GetClampedTarget(target));
     }
 
-    private Vector3 GetClampedTarget(Vector3 target)
+    private Vector2 GetClampedTarget(Vector2 target)
     {
         Rect zone = GetZone(Role);
-        Vector3 zoneCenter = new(zone.center.x, target.y, zone.center.y);
-        Vector3 blended = Vector3.Lerp(target, zoneCenter, ZoneWeight);
+        Vector2 zoneCenter = zone.center;
+        Vector2 blended = Vector2.Lerp(target, zoneCenter, ZoneWeight);
 
         float clampedX = Mathf.Clamp(blended.x, zone.xMin, zone.xMax);
-        float clampedZ = Mathf.Clamp(blended.z, zone.yMin, zone.yMax);
-        return new Vector3(clampedX, target.y, clampedZ);
+        float clampedZ = Mathf.Clamp(blended.y, zone.yMin, zone.yMax);
+        return new Vector2(clampedX, clampedZ);
     }
 
     private void BuildRoleZones()

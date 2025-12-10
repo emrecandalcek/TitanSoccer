@@ -1,8 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.AI;
 
-[RequireComponent(typeof(NavMeshAgent))]
+[RequireComponent(typeof(Rigidbody2D))]
 public class PlayerController : MonoBehaviour
 {
     [Header("Identity")]
@@ -19,51 +18,69 @@ public class PlayerController : MonoBehaviour
     public float MovementLockDuration = 0.25f;
     public AnimationCurve SlowdownCurve = AnimationCurve.EaseInOut(0, 1, 1, 0);
 
-    private NavMeshAgent _agent;
+    private Rigidbody2D _rigidbody;
     private float _lockTimer;
-    private Vector3 _pendingTarget;
-    private readonly Queue<Vector3> _steeringPoints = new();
+    private Vector2 _pendingTarget;
+    private readonly Queue<Vector2> _steeringPoints = new();
 
     public bool HasBall { get; private set; }
 
-    public Vector3 Velocity => _agent != null ? _agent.velocity : Vector3.zero;
+    public Vector2 Velocity { get; private set; }
 
     private void Awake()
     {
-        _agent = GetComponent<NavMeshAgent>();
-        ConfigureAgent();
+        _rigidbody = GetComponent<Rigidbody2D>();
+        _pendingTarget = transform.position;
+        ConfigureBody();
     }
 
-    private void ConfigureAgent()
+    private void ConfigureBody()
     {
-        _agent.acceleration = Attributes.Acceleration;
-        _agent.angularSpeed = Attributes.TurnSpeed;
-        _agent.stoppingDistance = StopDistance;
-        _agent.updateRotation = true;
+        if (_rigidbody == null) return;
+        _rigidbody.gravityScale = 0f;
+        _rigidbody.constraints = RigidbodyConstraints2D.FreezeRotation;
     }
 
     private void Update()
     {
-        if (_agent == null) return;
-
         if (_lockTimer > 0f)
         {
             _lockTimer -= Time.deltaTime;
             return;
         }
-
-        if (_steeringPoints.Count > 0 && _agent.remainingDistance <= StopDistance)
-        {
-            _agent.SetDestination(_steeringPoints.Dequeue());
-        }
-
-        if (_agent.remainingDistance <= StopDistance && _agent.velocity.magnitude > 0.01f)
-        {
-            _agent.velocity = Vector3.Lerp(_agent.velocity, Vector3.zero, Time.deltaTime * 4f);
-        }
     }
 
-    public void SetMovementTarget(Vector3 worldPosition, bool clearQueue = true)
+    private void FixedUpdate()
+    {
+        if (_rigidbody == null) return;
+
+        if (_lockTimer > 0f)
+        {
+            _rigidbody.velocity = Vector2.Lerp(_rigidbody.velocity, Vector2.zero, Time.fixedDeltaTime * 6f);
+            Velocity = _rigidbody.velocity;
+            return;
+        }
+
+        if (_steeringPoints.Count > 0 && Vector2.Distance(transform.position, _pendingTarget) <= StopDistance)
+        {
+            _pendingTarget = _steeringPoints.Dequeue();
+        }
+
+        Vector2 toTarget = _pendingTarget - (Vector2)transform.position;
+        if (toTarget.magnitude <= StopDistance)
+        {
+            _rigidbody.velocity = Vector2.Lerp(_rigidbody.velocity, Vector2.zero, Time.fixedDeltaTime * 5f);
+        }
+        else
+        {
+            Vector2 desired = toTarget.normalized * Attributes.EvaluateSkill(Attributes.Speed, 2.5f, 7.5f);
+            _rigidbody.velocity = Vector2.MoveTowards(_rigidbody.velocity, desired, Attributes.Acceleration * Time.fixedDeltaTime);
+        }
+
+        Velocity = _rigidbody.velocity;
+    }
+
+    public void SetMovementTarget(Vector2 worldPosition, bool clearQueue = true)
     {
         if (_lockTimer > 0f) return;
         _pendingTarget = worldPosition;
@@ -74,7 +91,6 @@ public class PlayerController : MonoBehaviour
         }
 
         _steeringPoints.Enqueue(worldPosition);
-        _agent.SetDestination(worldPosition);
     }
 
     public void LockMovement(float duration)
@@ -91,9 +107,9 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    public Vector3 PredictTargetPosition(float lookahead)
+    public Vector2 PredictTargetPosition(float lookahead)
     {
-        return transform.position + Velocity * lookahead;
+        return (Vector2)transform.position + Velocity * lookahead;
     }
 
     public void BlendToAnimation(Animator animator)

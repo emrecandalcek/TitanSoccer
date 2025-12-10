@@ -12,7 +12,7 @@ public class TouchInputController : MonoBehaviour
 
     private float _pressStartTime;
     private bool _pressingPlayer;
-    private readonly List<Vector3> _gesturePoints = new();
+    private readonly List<Vector2> _gesturePoints = new();
 
     private void Update()
     {
@@ -75,7 +75,7 @@ public class TouchInputController : MonoBehaviour
 
     private void ContinuePress(Vector2 screenPos)
     {
-        Vector3 world = GetWorldPosition(screenPos);
+        Vector2 world = GetWorldPosition(screenPos);
         if (_pressingPlayer)
         {
             _gesturePoints.Add(world);
@@ -85,7 +85,7 @@ public class TouchInputController : MonoBehaviour
     private void EndPress(Vector2 screenPos)
     {
         float held = Time.time - _pressStartTime;
-        Vector3 world = GetWorldPosition(screenPos);
+        Vector2 world = GetWorldPosition(screenPos);
 
         if (_pressingPlayer && held > 0.35f)
         {
@@ -116,9 +116,9 @@ public class TouchInputController : MonoBehaviour
             return;
         }
 
-        Vector3 start = _gesturePoints[0];
-        Vector3 end = _gesturePoints[_gesturePoints.Count - 1];
-        Vector3 direction = end - start;
+        Vector2 start = _gesturePoints[0];
+        Vector2 end = _gesturePoints[_gesturePoints.Count - 1];
+        Vector2 direction = end - start;
         float length = direction.magnitude;
         if (length < GestureMinDistance)
         {
@@ -130,15 +130,15 @@ public class TouchInputController : MonoBehaviour
         Ball.Shoot(ControlledPlayer, direction.normalized, normalizedPower, curvature);
     }
 
-    private float ComputeCurvature(List<Vector3> points)
+    private float ComputeCurvature(List<Vector2> points)
     {
         if (points.Count < 3) return 0f;
         float total = 0f;
         for (int i = 1; i < points.Count - 1; i++)
         {
-            Vector3 a = (points[i] - points[i - 1]).normalized;
-            Vector3 b = (points[i + 1] - points[i]).normalized;
-            total += Vector3.SignedAngle(a, b, Vector3.up);
+            Vector2 a = (points[i] - points[i - 1]).normalized;
+            Vector2 b = (points[i + 1] - points[i]).normalized;
+            total += Vector2.SignedAngle(a, b);
         }
 
         return Mathf.Clamp(total / 180f, -1f, 1f);
@@ -146,25 +146,16 @@ public class TouchInputController : MonoBehaviour
 
     private bool HitPlayer(Vector2 screenPos, out PlayerController player)
     {
-        Ray ray = WorldCamera.ScreenPointToRay(screenPos);
-        if (Physics.Raycast(ray, out var hit))
-        {
-            player = hit.collider.GetComponentInParent<PlayerController>();
-            return player != null;
-        }
-
-        player = null;
-        return false;
+        Vector2 world = GetWorldPosition(screenPos);
+        Collider2D hit = Physics2D.OverlapPoint(world, PitchMask);
+        player = hit != null ? hit.GetComponentInParent<PlayerController>() : null;
+        return player != null;
     }
 
-    private Vector3 GetWorldPosition(Vector2 screenPos)
+    private Vector2 GetWorldPosition(Vector2 screenPos)
     {
-        Ray ray = WorldCamera.ScreenPointToRay(screenPos);
-        if (Physics.Raycast(ray, out var hit, 100f, PitchMask))
-        {
-            return hit.point;
-        }
-
-        return ray.GetPoint(15f);
+        Vector3 screenPoint = new Vector3(screenPos.x, screenPos.y, Mathf.Abs(WorldCamera.transform.position.z));
+        Vector3 world = WorldCamera.ScreenToWorldPoint(screenPoint);
+        return new Vector2(world.x, world.y);
     }
 }

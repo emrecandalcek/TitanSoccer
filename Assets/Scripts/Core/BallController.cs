@@ -2,14 +2,13 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-[RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(Rigidbody2D))]
 public class BallController : MonoBehaviour
 {
     public event Action<PlayerController> PossessionChanged;
 
-    [Header("Flight")] public float GravityScale = 1f;
     [Header("Passing")] public float BasePassSpeed = 16f;
-    public float LoftArcHeight = 2.5f;
+    public float LoftBonus = 2.5f;
     public float MaxLoftMultiplier = 1.8f;
     public List<PlayerController> Defenders = new();
     [Header("Shot")] public float BaseShotForce = 22f;
@@ -18,12 +17,12 @@ public class BallController : MonoBehaviour
 
     public PlayerController CurrentPossessor { get; private set; }
 
-    private Rigidbody _rigidbody;
+    private Rigidbody2D _rigidbody;
     private float _spinTimer;
-    private Vector3 _spinAxis;
+    private Vector2 _spinAxis;
     private void Awake()
     {
-        _rigidbody = GetComponent<Rigidbody>();
+        _rigidbody = GetComponent<Rigidbody2D>();
     }
 
     private void FixedUpdate()
@@ -31,10 +30,8 @@ public class BallController : MonoBehaviour
         if (_spinTimer > 0f)
         {
             _spinTimer -= Time.fixedDeltaTime;
-            _rigidbody.AddForce(_spinAxis * CurveForce, ForceMode.Acceleration);
+            _rigidbody.AddForce(_spinAxis * CurveForce);
         }
-
-        _rigidbody.AddForce(Physics.gravity * (GravityScale - 1f), ForceMode.Acceleration);
     }
 
     public void SetPossession(PlayerController player)
@@ -59,17 +56,17 @@ public class BallController : MonoBehaviour
             return;
         }
 
-        Vector3 predicted = target.PredictTargetPosition(0.65f);
-        Vector3 direction = (predicted - transform.position);
+        Vector2 predicted = target.PredictTargetPosition(0.65f);
+        Vector2 direction = (predicted - (Vector2)transform.position);
         direction.Normalize();
 
         float speed = BasePassSpeed * passer.Attributes.PassPower;
-        Vector3 velocity = direction * speed;
+        Vector2 velocity = direction * speed;
 
         if (IsInterceptionLikely(Defenders, predicted))
         {
             velocity *= 0.9f;
-            predicted += (predicted - transform.position).normalized * 0.5f;
+            predicted += (predicted - (Vector2)transform.position).normalized * 0.5f;
         }
 
         FireBall(passer, velocity, predicted, false);
@@ -83,46 +80,47 @@ public class BallController : MonoBehaviour
             return;
         }
 
-        Vector3 predicted = target.PredictTargetPosition(0.85f);
-        Vector3 toTarget = predicted - transform.position;
+        Vector2 predicted = target.PredictTargetPosition(0.85f);
+        Vector2 toTarget = predicted - (Vector2)transform.position;
         float distance = toTarget.magnitude;
         toTarget.Normalize();
 
-        float arcHeight = LoftArcHeight + Mathf.Clamp(distance * 0.05f, 0f, LoftArcHeight * (MaxLoftMultiplier - 1f));
+        float lift = LoftBonus + Mathf.Clamp(distance * 0.05f, 0f, LoftBonus * (MaxLoftMultiplier - 1f));
         float launchSpeed = Mathf.Lerp(BasePassSpeed, BasePassSpeed * MaxLoftMultiplier, Mathf.Clamp01(holdSeconds / 2f));
 
-        Vector3 velocity = toTarget * launchSpeed;
-        velocity.y += Mathf.Sqrt(2f * Physics.gravity.magnitude * arcHeight);
+        Vector2 velocity = toTarget * launchSpeed;
+        velocity += Vector2.up * lift * 0.35f;
 
         if (IsInterceptionLikely(Defenders, predicted))
         {
-            velocity += Vector3.up * 1.5f;
+            velocity += Vector2.up * 1.5f;
         }
 
         FireBall(passer, velocity, predicted, true);
         passer.LockMovement(0.35f);
     }
 
-    public void Shoot(PlayerController shooter, Vector3 gestureDir, float power, float curvature)
+    public void Shoot(PlayerController shooter, Vector2 gestureDir, float power, float curvature)
     {
         float force = BaseShotForce * shooter.Attributes.ShotPower * power;
-        Vector3 velocity = gestureDir.normalized * force;
-        velocity.y += Mathf.Lerp(0.25f, 1.25f, curvature) * force * 0.15f;
+        Vector2 velocity = gestureDir.normalized * force;
+        velocity += Vector2.up * Mathf.Lerp(0.25f, 1.25f, curvature) * force * 0.05f;
 
-        FireBall(shooter, velocity, transform.position + gestureDir, true);
-        _spinAxis = Vector3.Cross(Vector3.up, gestureDir.normalized) * curvature * shooter.Attributes.SpinControl;
+        FireBall(shooter, velocity, (Vector2)transform.position + gestureDir, true);
+        Vector3 cross = Vector3.Cross(Vector3.forward, new Vector3(gestureDir.x, gestureDir.y, 0f));
+        _spinAxis = new Vector2(-cross.y, cross.x) * curvature * shooter.Attributes.SpinControl;
         _spinTimer = SpinDuration;
         shooter.LockMovement(0.4f);
     }
 
-    private void FireBall(PlayerController passer, Vector3 velocity, Vector3 target, bool aerial)
+    private void FireBall(PlayerController passer, Vector2 velocity, Vector2 target, bool aerial)
     {
         Release();
         _rigidbody.velocity = velocity;
-        _rigidbody.angularVelocity = Vector3.zero;
+        _rigidbody.angularVelocity = 0f;
     }
 
-    private void OnCollisionEnter(Collision collision)
+    private void OnCollisionEnter2D(Collision2D collision)
     {
         if (collision.collider.TryGetComponent(out PlayerController controller))
         {
@@ -130,7 +128,7 @@ public class BallController : MonoBehaviour
         }
     }
 
-    public bool IsInterceptionLikely(IEnumerable<PlayerController> defenders, Vector3 target)
+    public bool IsInterceptionLikely(IEnumerable<PlayerController> defenders, Vector2 target)
     {
         foreach (var defender in defenders)
         {
@@ -145,11 +143,13 @@ public class BallController : MonoBehaviour
         return false;
     }
 
-    private static float DistancePointLine(Vector3 point, Vector3 lineStart, Vector3 lineEnd)
+    private static float DistancePointLine(Vector3 point, Vector3 lineStart, Vector2 lineEnd)
     {
-        Vector3 line = lineEnd - lineStart;
-        Vector3 projected = Vector3.Project(point - lineStart, line.normalized);
-        Vector3 closest = lineStart + projected;
-        return Vector3.Distance(point, closest);
+        Vector2 point2D = new Vector2(point.x, point.y);
+        Vector2 lineStart2D = new Vector2(lineStart.x, lineStart.y);
+        Vector2 line = lineEnd - lineStart2D;
+        Vector2 projected = Vector2.Dot(point2D - lineStart2D, line.normalized) * line.normalized;
+        Vector2 closest = lineStart2D + projected;
+        return Vector2.Distance(point2D, closest);
     }
 }
